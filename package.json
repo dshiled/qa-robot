@@ -8,7 +8,9 @@
   },
   "scripts": {
     "ui": "node server.js",
-    "test": "node scripts/security-test.js",
+    "test": "node scripts/security-test.js && node scripts/store-test.js",
+    "test:security": "node scripts/security-test.js",
+    "test:store": "node scripts/store-test.js",
     "test:e2e": "playwright test"
   },
   "keywords": [],

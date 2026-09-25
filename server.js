@@ -29,6 +29,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
 
+// SECURITY: demo billing grants a paid tier with no payment. It is enabled by
+// default ONLY outside production, so an unset STRIPE_SECRET_KEY cannot hand
+// out free enterprise access on a live deploy.
+const ALLOW_DEMO_BILLING = process.env.ALLOW_DEMO_BILLING
+    ? process.env.ALLOW_DEMO_BILLING === 'true'
+    : process.env.NODE_ENV !== 'production';
+if (!ALLOW_DEMO_BILLING) {
+    console.log('[Billing] Demo billing DISABLED — a paid tier requires real payment');
+}
+
 // SECURITY: CORS is restricted by default. A blanket cors() lets any origin
 // call this API. Set ALLOWED_ORIGINS to a comma-separated list to permit
 // specific origins (e.g. https://app.example.com).
@@ -64,6 +74,58 @@ app.use(express.static(path.join(__dirname, 'dashboard-ui'), { index: false }));
 // library (@node-saml/node-saml-passport or xml-crypto) must be integrated
 // and the missing user-store functions implemented first.
 // See saml.js for the integration outline.
+
+// ============================================================================
+// Route protection
+// ----------------------------------------------------------------------------
+// Previously 23 of 26 routes had no authentication, including the audit-log
+// export and the key-creation endpoint. Every route that reads or mutates
+// tenant data now requires an API key.
+//
+// Public by design: the landing page, the dashboard shell and its static
+// assets. Everything else is authenticated.
+// ============================================================================
+
+// Rate limiting — a simple fixed-window limiter, no external dependency.
+// SECURITY: brute-forcing API keys or flooding the runner is otherwise free.
+const RATE_LIMIT_MAX = parseInt(process.env.RATE_LIMIT_MAX) || 100;
+const RATE_LIMIT_WINDOW_MS = parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 60000;
+const rateBuckets = new Map();
+
+function rateLimit(req, res, next) {
+    const now = Date.now();
+    const id = req.apiKey || req.ip || 'anon';
+
+    let bucket = rateBuckets.get(id);
+    if (!bucket || now - bucket.start > RATE_LIMIT_WINDOW_MS) {
+        bucket = { start: now, count: 0 };
+    }
+    bucket.count++;
+    rateBuckets.set(id, bucket);
+
+    if (bucket.count > RATE_LIMIT_MAX) {
+        const retryAfter = Math.ceil((RATE_LIMIT_WINDOW_MS - (now - bucket.start)) / 1000);
+        res.set('Retry-After', String(retryAfter));
+        return res.status(429).json({
+            error: 'Rate limit exceeded',
+            retry_after_seconds: retryAfter
+        });
+    }
+    next();
+}
+
+// Drop expired buckets so the Map cannot grow without bound.
+setInterval(() => {
+    const now = Date.now();
+    for (const [id, bucket] of rateBuckets) {
+        if (now - bucket.start > RATE_LIMIT_WINDOW_MS) rateBuckets.delete(id);
+    }
+}, RATE_LIMIT_WINDOW_MS).unref();
+
+// Shorthand for the common case: authenticate, then rate limit.
+function secure(handler) {
+    return [auth.requireAuth, rateLimit, handler];
+}
 
 // Public Landing Page
 app.get('/', (req, res) => {
@@ -106,7 +168,7 @@ function getFallbackRuns() {
 
 // ---- Video Streaming ----
 
-app.get('/api/videos/:filename', (req, res) => {
+app.get('/api/videos/:filename', ...secure((req, res) => {
     const filename = req.params.filename;
     const testResultsDir = path.join(__dirname, 'test-results');
     
@@ -145,11 +207,11 @@ app.get('/api/videos/:filename', (req, res) => {
         });
         fs.createReadStream(videoPath).pipe(res);
     }
-});
+}));
 
 // ---- Test Runs ----
 
-app.get('/api/runs', (req, res) => {
+app.get('/api/runs', ...secure((req, res) => {
     const reportPath = path.join(__dirname, 'test-results', 'report.json');
     
     if (fs.existsSync(reportPath)) {
@@ -191,11 +253,11 @@ app.get('/api/runs', (req, res) => {
     } else {
         return res.json(getFallbackRuns());
     }
-});
+}));
 
 // ---- On-Demand Test Execution (Grid-Aware) ----
 
-app.post('/api/run-tests', (req, res) => {
+app.post('/api/run-tests', ...secure((req, res) => {
     const spec = req.body && req.body.spec ? req.body.spec : null;
     const browsers = req.body && req.body.browsers ? req.body.browsers : ['chromium', 'firefox', 'webkit'];
 
@@ -258,12 +320,12 @@ app.post('/api/run-tests', (req, res) => {
     }).catch(err => {
         res.status(500).json({ success: false, error: err.message, job_id: job.id });
     });
-});
+}));
 
 // ---- Grid Job Endpoints ----
 
 // Create a grid job (programmatic API)
-app.post('/api/grid/jobs', (req, res) => {
+app.post('/api/grid/jobs', ...secure((req, res) => {
     // createJob validates spec/browsers and throws on invalid input.
     let job;
     try {
@@ -287,7 +349,7 @@ app.post('/api/grid/jobs', (req, res) => {
         browsers: job.browsers,
         type: job.type
     });
-});
+}));
 
 // SECURITY: jobId arrives from the URL and is used to build a filesystem
 // path. Reject anything that is not a plain job-XXXXXXXX id, otherwise
@@ -297,7 +359,7 @@ function isValidJobId(jobId) {
 }
 
 // Get job status
-app.get('/api/grid/jobs/:jobId', (req, res) => {
+app.get('/api/grid/jobs/:jobId', ...secure((req, res) => {
     const jobId = req.params.jobId;
     if (!isValidJobId(jobId)) {
         return res.status(400).json({ error: 'Invalid job id' });
@@ -311,16 +373,16 @@ app.get('/api/grid/jobs/:jobId', (req, res) => {
         }
     } catch {}
     res.status(404).json({ error: 'Job not found' });
-});
+}));
 
 // List recent jobs
-app.get('/api/grid/jobs', (req, res) => {
+app.get('/api/grid/jobs', ...secure((req, res) => {
     const status = grid.getGridStatus();
     res.json(status.recent_jobs);
-});
+}));
 
 // Complete a job (called by runner after execution)
-app.post('/api/grid/jobs/:jobId/complete', (req, res) => {
+app.post('/api/grid/jobs/:jobId/complete', ...secure((req, res) => {
     const jobId = req.params.jobId;
     if (!isValidJobId(jobId)) {
         return res.status(400).json({ error: 'Invalid job id' });
@@ -380,12 +442,12 @@ app.post('/api/grid/jobs/:jobId/complete', (req, res) => {
     });
 
     res.json({ success: true, job_id: jobId, status: job.status });
-});
+}));
 
 // ---- Grid Runner Endpoints ----
 
 // Register / heartbeat a runner
-app.post('/api/grid/runners', (req, res) => {
+app.post('/api/grid/runners', ...secure((req, res) => {
     const runner = grid.registerRunner(req.body);
     res.json({
         runner_id: runner.id,
@@ -394,10 +456,10 @@ app.post('/api/grid/runners', (req, res) => {
         capabilities: runner.capabilities,
         message: 'Runner registered. Include this runner_id in heartbeat calls.'
     });
-});
+}));
 
 // Heartbeat (called by runner every 30s)
-app.post('/api/grid/runners/heartbeat', (req, res) => {
+app.post('/api/grid/runners/heartbeat', ...secure((req, res) => {
     const runnerId = req.body && req.body.runner_id;
     if (!runnerId) return res.status(400).json({ error: 'runner_id required' });
 
@@ -405,19 +467,19 @@ app.post('/api/grid/runners/heartbeat', (req, res) => {
     if (!runner) return res.status(404).json({ error: 'Runner not found' });
 
     res.json({ status: runner.status, current_job: runner.current_job });
-});
+}));
 
 // Get grid status (dashboard)
-app.get('/api/grid/status', (req, res) => {
+app.get('/api/grid/status', ...secure((req, res) => {
     res.json(grid.getGridStatus());
-});
+}));
 
 // ---- Prompt Safety Layer ----
 
 // Check a prompt for safety (the main endpoint apps call)
 // POST /api/check-prompt  { "prompt": "...", "context": { ... } }
 // Returns { safe, intent, label, severity, flags, prompt_length, advice }
-app.post('/api/check-prompt', express.json({ limit: '1mb' }), (req, res) => {
+app.post('/api/check-prompt', ...secure((req, res) => {
     try {
         const prompt = req.body && req.body.prompt;
         if (!prompt) return res.status(400).json({ error: 'prompt is required' });
@@ -479,26 +541,26 @@ app.post('/api/check-prompt', express.json({ limit: '1mb' }), (req, res) => {
         console.error('[PromptSafety] /api/check-prompt error:', error.message);
         res.status(500).json({ error: 'Safety check failed: ' + error.message });
     }
-});
+}));
 
 // Get recent prompt safety alerts (dashboard)
-app.get('/api/prompt-alerts', (req, res) => {
+app.get('/api/prompt-alerts', ...secure((req, res) => {
     try {
         var limit = parseInt(req.query.limit) || 50;
         res.json(promptSafety.getRecentAlerts(limit));
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // Get prompt safety stats
-app.get('/api/prompt-alerts/stats', (req, res) => {
+app.get('/api/prompt-alerts/stats', ...secure((req, res) => {
     try {
         res.json(promptSafety.getAlertStats());
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // ---- CI Integration ----
 
@@ -506,7 +568,7 @@ app.get('/api/prompt-alerts/stats', (req, res) => {
 const ciRuns = new Map();
 
 // POST /api/ci/results — called by GitHub Actions after test run
-app.post('/api/ci/results', express.json({ limit: '10mb' }), (req, res) => {
+app.post('/api/ci/results', ...secure((req, res) => {
     try {
         const body = req.body;
         const runId = generateRunId();
@@ -571,7 +633,7 @@ app.post('/api/ci/results', express.json({ limit: '10mb' }), (req, res) => {
         console.error('[CI] Error:', error);
         res.status(500).json({ success: false, error: error.message });
     }
-});
+}));
 
 // Async: post comment on GitHub PR
 async function postPRComment(ciRun) {
@@ -657,7 +719,7 @@ async function setCommitStatus(ciRun) {
 }
 
 // GET /api/ci/runs — list recent CI runs
-app.get('/api/ci/runs', (req, res) => {
+app.get('/api/ci/runs', ...secure((req, res) => {
     const ciDir = path.join(__dirname, 'ci-runs');
     const runs = [];
 
@@ -680,12 +742,12 @@ app.get('/api/ci/runs', (req, res) => {
     }
 
     res.json(runs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)));
-});
+}));
 
 // ---- Audit Log Endpoints ----
 
 // GET /api/audit — query audit events with filters
-app.get('/api/audit', (req, res) => {
+app.get('/api/audit', ...secure((req, res) => {
     try {
         const options = {
             type: req.query.type || null,
@@ -706,19 +768,19 @@ app.get('/api/audit', (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // GET /api/audit/stats — aggregate audit stats
-app.get('/api/audit/stats', (req, res) => {
+app.get('/api/audit/stats', ...secure((req, res) => {
     try {
         res.json(audit.getEventStats());
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // GET /api/audit/export — export audit log (JSON)
-app.get('/api/audit/export', (req, res) => {
+app.get('/api/audit/export', ...secure((req, res) => {
     try {
         const options = {
             limit: parseInt(req.query.limit) || 1000,
@@ -733,11 +795,11 @@ app.get('/api/audit/export', (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // ---- Mobile Test Upload (Grid-Aware) ----
 
-app.post('/api/run-mobile-test', upload.single('appBinary'), async (req, res) => {
+app.post('/api/run-mobile-test', ...secure(async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ success: false, error: 'No app binary file provided.' });
 
@@ -810,62 +872,121 @@ app.post('/api/run-mobile-test', upload.single('appBinary'), async (req, res) =>
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
-});
+}));
 
 // ---- Auth: API Key Management ----
 
-// Create a new API key (public — first-time setup)
-app.post('/api/keys', express.json(), (req, res) => {
+// Create a new API key.
+//
+// SECURITY: this route used to be PUBLIC, which let anyone mint themselves a
+// working key and reach every other endpoint. The first key on a fresh install
+// is now created by ensureBootstrapKey() at boot and written to
+// data/ADMIN_KEY.txt; from then on this route requires an existing key.
+app.post('/api/keys', ...secure((req, res) => {
     try {
-        const key = auth.generateApiKey();
-        const info = {
-            id: key,
+        const team = req.body.team || req.apiKeyInfo.team;
+        // A key may only mint keys for its own team.
+        if (team !== req.apiKeyInfo.team) {
+            return res.status(403).json({ error: 'Forbidden: cannot create keys for another team' });
+        }
+
+        const created = auth.createApiKey({
             name: req.body.name || 'Default Key',
-            team: req.body.team || 'default',
+            team: team,
             tier: 'free',
-            is_active: true,
-            created_at: new Date().toISOString(),
-            last_used: null
-        };
-        auth.API_KEYS.set(key, info);
-        console.log(`[Auth] Created API key: ${key} for ${info.name}`);
+            created_by: req.apiKeyInfo.id
+        });
+        console.log(`[Auth] Created API key for ${created.name} (by ${req.apiKeyInfo.name})`);
 
         // Audit log
         audit.logApiKeyCreated({
-            actor: info.name,
-            actor_type: 'user',
-            tenant: info.team,
-            target: key,
-            details: { key_name: info.name, team: info.team, tier: info.tier },
+            actor: req.apiKeyInfo.name,
+            actor_type: 'api_key',
+            tenant: team,
+            target: created.id,
+            details: { key_name: created.name, team: team, tier: created.tier },
             ip: req.ip || req.connection.remoteAddress,
             user_agent: req.headers['user-agent']
         });
 
-        res.json({ api_key: key, ...info });
+        res.json({ api_key: created.id, ...created });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
-// List all API keys (requires auth)
-app.get('/api/keys', auth.requireAuth, (req, res) => {
-    const keys = [];
-    auth.API_KEYS.forEach((info, key) => {
-        keys.push({ api_key: key, name: info.name, team: info.team, tier: info.tier, is_active: info.is_active, created_at: info.created_at });
+// Revoke an API key
+app.delete('/api/keys/:keyId', ...secure((req, res) => {
+    const { keyId } = req.params;
+
+    if (!/^qa_live_[0-9a-f]{64}$/.test(keyId)) {
+        return res.status(400).json({ error: 'Invalid key id' });
+    }
+    if (keyId === req.apiKeyInfo.id) {
+        return res.status(400).json({ error: 'Cannot revoke the key you are authenticating with' });
+    }
+
+    const info = auth.getApiKeyInfo(keyId);
+    if (!info) return res.status(404).json({ error: 'API key not found' });
+    if (info.team !== req.apiKeyInfo.team) {
+        return res.status(403).json({ error: 'Forbidden: cannot revoke another team\'s key' });
+    }
+
+    auth.revokeApiKey(keyId);
+    console.log(`[Auth] Revoked key ${info.name} (${info.team})`);
+
+    audit.logEvent({
+        type: 'api_key_revoked',
+        actor: req.apiKeyInfo.name,
+        actor_type: 'api_key',
+        tenant: req.apiKeyInfo.team,
+        target: keyId,
+        details: { key_name: info.name },
+        ip: req.ip || req.connection.remoteAddress,
+        user_agent: req.headers['user-agent']
     });
+
+    res.json({ revoked: true, id: keyId });
+}));
+
+// List all API keys for the caller's team
+app.get('/api/keys', ...secure((req, res) => {
+    const keys = auth.listApiKeys(req.apiKeyInfo.team).map(info => ({
+        id: info.id,
+        name: info.name,
+        team: info.team,
+        tier: info.tier,
+        is_active: info.is_active,
+        created_at: info.created_at,
+        last_used: info.last_used
+    }));
     res.json(keys);
-});
+}));
 
 // Upgrade to enterprise (starts Stripe checkout or demo flow)
-app.post('/api/keys/:keyId/upgrade', auth.requireAuth, async (req, res) => {
+app.post('/api/keys/:keyId/upgrade', ...secure(async (req, res) => {
     const { keyId } = req.params;
-    const info = auth.API_KEYS.get(keyId);
+    const info = auth.getApiKeyInfo(keyId);
     if (!info) return res.status(404).json({ error: 'API key not found' });
+    if (info.team !== req.apiKeyInfo.team) {
+        return res.status(403).json({ error: 'Forbidden: cannot upgrade another team\'s key' });
+    }
     if (info.tier === 'enterprise') return res.json({ message: 'Already on enterprise tier' });
+
+    // SECURITY: demo billing grants a paid tier with no payment. Refuse it
+    // unless explicitly allowed, so a production deploy cannot hand out
+    // enterprise access just because STRIPE_SECRET_KEY is unset.
+    if (!auth.initStripe() && !ALLOW_DEMO_BILLING) {
+        return res.status(503).json({
+            error: 'Billing is not configured',
+            detail: 'STRIPE_SECRET_KEY is not set and demo billing is disabled. ' +
+                    'Set STRIPE_SECRET_KEY, or set ALLOW_DEMO_BILLING=true for local dev only.'
+        });
+    }
 
     const protocol = req.protocol;
     const host = req.get('host');
-    const successUrl = `${protocol}://${host}/app?billing=success&key=${keyId}`;
+    const successUrl = `${protocol}://${host}/app?billing=success`;
     const cancelUrl = `${protocol}://${host}/app?billing=cancelled`;
 
     try {
@@ -882,10 +1003,10 @@ app.post('/api/keys/:keyId/upgrade', auth.requireAuth, async (req, res) => {
         console.error('[Billing] Checkout error:', error);
         res.status(500).json({ error: error.message });
     }
-});
+}));
 
 // Billing status
-app.get('/api/billing/status', auth.requireAuth, (req, res) => {
+app.get('/api/billing/status', ...secure((req, res) => {
     const info = req.apiKeyInfo;
     res.json({
         api_key: info.id,
@@ -897,14 +1018,31 @@ app.get('/api/billing/status', auth.requireAuth, (req, res) => {
             ? { price: '$1,000/month', features: ['Unlimited robot runs', 'Video storage', 'CI integration', 'Priority support', 'SLA'] }
             : { price: '$0', features: ['Local runs only', 'AI test generation', 'HTML reports', 'Community support'] }
     });
-});
+}));
 
-// Stripe webhook endpoint
+// Stripe webhook endpoint.
+//
+// SECURITY: this route is intentionally unauthenticated — Stripe cannot present
+// an API key. It is authenticated by the Stripe signature check inside
+// handleStripeWebhook() instead, which rejects unsigned payloads.
 app.post('/api/webhook/stripe', express.raw({ type: 'application/json' }), (req, res) => {
     const signature = req.headers['stripe-signature'];
     auth.handleStripeWebhook(req.body, signature)
-        .then(result => res.json(result))
+        .then(result => {
+            if (result.error) return res.status(400).json(result);
+            res.json(result);
+        })
         .catch(err => res.status(400).json({ error: err.message }));
+});
+
+// Health check — public, but exposes only whether the service is up.
+app.get('/api/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        saml: 'disabled (assertion signatures not verified)',
+        billing: auth.initStripe() ? 'configured' : 'not configured',
+        uptime_seconds: Math.floor(process.uptime())
+    });
 });
 
 // ---- Keep Alive ----
@@ -919,8 +1057,26 @@ function keepAlive() {
     }
 }
 
+// ---- Startup ----
+// Rehydrate persistent state and, on a completely fresh install, create the
+// first admin key. This replaces the previously public POST /api/keys route.
+(function bootstrap() {
+    try {
+        auth.loadKeys();
+        grid.loadPersistedState();
+        auth.initStripe();
+        auth.ensureBootstrapKey();
+    } catch (e) {
+        console.error('[Startup] Initialisation failed:', e.message);
+    }
+})();
+
 app.listen(PORT, () => {
-    console.log(`QA-Robot Public Site & SaaS backend running at http://localhost:${PORT}`);
+    console.log(`QA-Robot running at http://localhost:${PORT}`);
+    console.log('  Landing:  http://localhost:' + PORT + '/');
+    console.log('  Dashboard:http://localhost:' + PORT + '/app');
+    console.log('  Health:   http://localhost:' + PORT + '/api/health');
+    console.log('  API auth: Authorization: Bearer <key from data/ADMIN_KEY.txt>');
 });
 
 keepAlive();

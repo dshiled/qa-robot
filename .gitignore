@@ -24,6 +24,13 @@ uploads/
 logs/
 *.log
 
+# SQLite database + first-run admin key — never commit
+data/
+*.db
+*.db-wal
+*.db-shm
+ADMIN_KEY.txt
+
 # Generated runner scripts
 mobile-run-*.js
 

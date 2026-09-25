@@ -6,6 +6,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const store = require('./store.js');
 
 // ---- Storage ----
 
@@ -133,13 +134,21 @@ function createJob(options) {
 }
 
 function persistJob(job) {
+    // SQLite is the authoritative store. The per-job JSON file is still written
+    // for human inspection/debugging, but the DB is what survives restarts and
+    // is what loadPersistedState() rehydrates from.
+    try {
+        store.saveJob(job);
+    } catch (err) {
+        console.error('[Grid] Failed to persist job to store ' + job.id + ':', err.message);
+    }
     try {
         fs.writeFileSync(
             path.join(GRID_DIR, job.id + '.json'),
             JSON.stringify(job, null, 2)
         );
     } catch (err) {
-        console.error('[Grid] Failed to persist job ' + job.id + ':', err.message);
+        console.error('[Grid] Failed to write job file ' + job.id + ':', err.message);
     }
 }
 
@@ -176,8 +185,17 @@ function registerRunner(info) {
 
     RUNNERS.set(runnerId, runner);
     if (!RUNNER_JOBS.has(runnerId)) RUNNER_JOBS.set(runnerId, new Set());
+    persistRunner(runner);
     console.log('[Grid] Runner registered: ' + runnerId + ' (' + runner.name + ')');
     return runner;
+}
+
+function persistRunner(runner) {
+    try {
+        store.saveRunner(runner);
+    } catch (err) {
+        console.error('[Grid] Failed to persist runner ' + runner.id + ':', err.message);
+    }
 }
 
 function heartbeat(runnerId) {
@@ -187,7 +205,50 @@ function heartbeat(runnerId) {
     runner.last_heartbeat = timestamp();
     if (runner.status === 'offline') runner.status = 'online';
     RUNNERS.set(runnerId, runner);
+    persistRunner(runner);
     return runner;
+}
+
+/**
+ * Rehydrate jobs and runners from SQLite at boot.
+ *
+ * Jobs that were mid-flight when the process died are marked 'failed' with a
+ * clear reason, because their runner is gone and nothing will ever complete
+ * them. Anything already terminal (passed/failed) is restored as-is.
+ */
+function loadPersistedState() {
+    let restored = 0;
+    let abandoned = 0;
+
+    for (const job of store.loadAllJobs()) {
+        if (!job || !job.id) continue;
+        if (job.status === 'queued' || job.status === 'dispatched' || job.status === 'running') {
+            job.status = 'failed';
+            job.error = 'Interrupted by server restart';
+            job.completed_at = timestamp();
+            job.updated_at = timestamp();
+            persistJob(job);
+            abandoned++;
+        }
+        JOBS.set(job.id, job);
+        restored++;
+    }
+
+    // Runners from a previous process are not presumed alive; they show as
+    // offline until they send a fresh heartbeat.
+    for (const runner of store.listRunners()) {
+        if (!runner || !runner.id) continue;
+        if (runner.status === 'online' || runner.status === 'busy') {
+            runner.status = 'offline';
+            runner.current_job = null;
+        }
+        RUNNERS.set(runner.id, runner);
+        if (!RUNNER_JOBS.has(runner.id)) RUNNER_JOBS.set(runner.id, new Set());
+    }
+
+    console.log('[Grid] Restored ' + restored + ' job(s)' +
+                (abandoned ? ' (' + abandoned + ' marked failed after restart)' : ''));
+    return { restored, abandoned };
 }
 
 function findAvailableRunner(browsers) {
@@ -588,5 +649,9 @@ module.exports = {
     findVideoFiles: findVideoFiles,
     // Exported for testing / reuse by API layer
     validateSpec: validateSpec,
-    validateBrowsers: validateBrowsers
+    validateBrowsers: validateBrowsers,
+    // Persistence
+    loadPersistedState,
+    persistJob,
+    persistRunner
 };
