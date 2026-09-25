@@ -1,4 +1,106 @@
 // Clean SPA Router for QA-Robot Dashboard
+//
+// SECURITY: every API route requires an API key. The key is entered once,
+// kept in sessionStorage (cleared when the tab closes) and attached to every
+// request as a bearer token. Nothing is stored in localStorage, so the key
+// does not outlive the browser session.
+
+// ---- API key handling ----
+
+const KEY_STORAGE = 'qaRobotApiKey';
+
+function getApiKey() {
+    try { return sessionStorage.getItem(KEY_STORAGE) || ''; } catch (e) { return ''; }
+}
+
+function setApiKey(key) {
+    try { sessionStorage.setItem(KEY_STORAGE, key); } catch (e) { /* private mode */ }
+}
+
+function clearApiKey() {
+    try { sessionStorage.removeItem(KEY_STORAGE); } catch (e) {}
+}
+
+/**
+ * Authenticated fetch. Attaches the bearer token and handles 401 by
+ * bouncing back to the key screen rather than rendering broken data.
+ */
+async function apiFetch(url, options = {}) {
+    const key = getApiKey();
+    const opts = { ...options, headers: { ...(options.headers || {}) } };
+
+    if (key) opts.headers['Authorization'] = 'Bearer ' + key;
+    if (opts.body && !(opts.body instanceof FormData) && !opts.headers['Content-Type']) {
+        opts.headers['Content-Type'] = 'application/json';
+    }
+
+    const res = await fetch(url, opts);
+
+    if (res.status === 401) {
+        clearApiKey();
+        showKeyScreen('That API key was rejected. Check data/ADMIN_KEY.txt and try again.');
+        throw new Error('unauthorized');
+    }
+    return res;
+}
+
+// ---- Key gate ----
+
+function showKeyScreen(message) {
+    // The SPA mounts into #app-root (see index.html).
+    const app = document.getElementById('app-root') || document.getElementById('app');
+    if (!app) return;
+    app.innerHTML = `
+        <div class="key-gate">
+            <div class="key-gate-card">
+                <h1>QA-Robot</h1>
+                <p class="key-gate-sub">Self-hosted QA governance. Enter an API key to continue.</p>
+                ${message ? `<div class="key-gate-error">${message}</div>` : ''}
+                <label for="api-key-input">API key</label>
+                <input id="api-key-input" type="password" autocomplete="off"
+                       placeholder="qa_live_..." spellcheck="false" />
+                <button id="key-submit">Unlock dashboard</button>
+                <p class="key-gate-hint">
+                    On first run the key is printed to the console and written to
+                    <code>data/ADMIN_KEY.txt</code>.
+                </p>
+            </div>
+        </div>`;
+
+    const input = document.getElementById('api-key-input');
+    const submit = async () => {
+        const key = (input.value || '').trim();
+        if (!key) return;
+
+        // Verify before saving, so a typo does not get persisted.
+        try {
+            const res = await fetch('/api/health', {
+                headers: { 'Authorization': 'Bearer ' + key }
+            });
+            if (!res.ok) throw new Error('bad status ' + res.status);
+        } catch (e) {
+            showKeyScreen('Could not reach the server. Is it running?');
+            return;
+        }
+
+        const check = await fetch('/api/keys', {
+            headers: { 'Authorization': 'Bearer ' + key }
+        });
+        if (check.status === 401) {
+            showKeyScreen('That key was rejected.');
+            return;
+        }
+
+        setApiKey(key);
+        location.reload();
+    };
+
+    // Attach to the BUTTON element. (Assigning to `submit.onclick` would set a
+    // property on the function object and leave the button inert.)
+    document.getElementById('key-submit').onclick = submit;
+    input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+    input.focus();
+}
 
 const views = {
     dashboard: `
@@ -104,18 +206,28 @@ const views = {
         <div style="display: flex; flex-direction: column; gap: 24px;">
             <div class="kpi-card" style="padding: 32px; display: flex; flex-direction: row; justify-content: space-between; align-items: center;">
                 <div>
-                    <h3 style="font-size: 1.3rem; margin-bottom: 4px; color: var(--brand-navy); font-weight: 800;">Enterprise Subscription Plan</h3>
-                    <p style="color: var(--text-muted);">$1,000 / month • Unlimited Robot Runs & Video Storage</p>
+                    <h3 style="font-size: 1.3rem; margin-bottom: 4px; color: var(--brand-navy); font-weight: 800;">Subscription</h3>
+                    <p style="color: var(--text-muted);">Self-hosted. No hosted dashboard, no per-seat fee.</p>
                 </div>
-                <button class="upgrade-btn" style="width: auto; padding: 12px 28px;" onclick="alert('Redirecting to Stripe Billing Portal...')">Manage Billing via Stripe</button>
+                <div id="billing-status" style="color: var(--text-muted); font-size: 0.9rem;">Checking…</div>
             </div>
 
             <div class="kpi-card" style="padding: 32px;">
-                <h3 style="font-size: 1.2rem; margin-bottom: 12px; color: var(--brand-navy); font-weight: 800;">QA-Robot API Key</h3>
-                <div style="display: flex; gap: 12px; align-items: center;">
-                    <input type="text" value="qa_live_98f4h2984928f9a8f294" readonly style="flex-grow: 1; padding: 14px; border-radius: 10px; border: 1px solid var(--border-color); background: #f8fafc; font-family: monospace; font-size: 1rem; font-weight: 600;" />
-                    <button class="action-btn" onclick="alert('API Key Copied to Clipboard!')">Copy Key</button>
+                <h3 style="font-size: 1.2rem; margin-bottom: 12px; color: var(--brand-navy); font-weight: 800;">Your API keys</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">
+                    Create and revoke keys for this team. Each key is shown once at creation and
+                    stored in the local SQLite database on this machine.
+                </p>
+                <div style="display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap;">
+                    <div>
+                        <label for="new-key-name" style="display: block; font-size: 0.8rem; font-weight: 700; margin-bottom: 6px; color: var(--text-muted);">New key name</label>
+                        <input id="new-key-name" type="text" placeholder="CI pipeline"
+                               style="padding: 12px; border-radius: 10px; border: 1px solid var(--border-color); font-size: 0.95rem;" />
+                    </div>
+                    <button class="action-btn" onclick="createKey()">Create key</button>
                 </div>
+                <div id="new-key-result" style="margin-top: 16px;"></div>
+                <div id="key-list" style="margin-top: 20px;"></div>
             </div>
         </div>
 
@@ -253,7 +365,7 @@ let apiData = [];
 // Fetch data from Node.js Backend API
 async function fetchTestRuns() {
     try {
-        const response = await fetch('http://localhost:3000/api/runs');
+        const response = await apiFetch('/api/runs');
         apiData = await response.json();
     } catch (error) {
         console.error("Using fallback data", error);
@@ -344,7 +456,7 @@ window.triggerPipeline = async function() {
     }
 
     try {
-        const res = await fetch('/api/run-tests', { method: 'POST' });
+        const res = await apiFetch('/api/run-tests', { method: 'POST' });
         const data = await res.json();
         
         if (btn) {
@@ -376,7 +488,7 @@ window.triggerPipeline = async function() {
 
 async function fetchGridStatus() {
     try {
-        const res = await fetch('/api/grid/status');
+        const res = await apiFetch('/api/grid/status');
         return await res.json();
     } catch (err) {
         console.error('Failed to fetch grid status:', err);
@@ -535,6 +647,8 @@ async function router() {
         root.innerHTML = views.videos;
     } else if (hash === '#/settings') {
         root.innerHTML = views.settings;
+        loadKeyList();
+        loadBillingStatus();
     } else if (hash === '#/grid') {
         root.innerHTML = views.grid;
         renderGridPanel();
@@ -561,7 +675,7 @@ async function fetchAuditLog() {
         const url = type
             ? `http://localhost:3000/api/audit?type=${encodeURIComponent(type)}`
             : 'http://localhost:3000/api/audit';
-        const response = await fetch(url);
+        const response = await apiFetch(url);
         window._auditData = await response.json();
     } catch (error) {
         console.error('Failed to fetch audit log:', error);
@@ -691,7 +805,7 @@ function initMobileUpload() {
         formData.append('appBinary', file);
 
         try {
-            const res = await fetch('/api/run-mobile-test', {
+            const res = await apiFetch('/api/run-mobile-test', {
                 method: 'POST',
                 body: formData
             });
@@ -711,7 +825,104 @@ function initMobileUpload() {
     }
 }
 
+// ---- API key management ----
+
+window.createKey = async function() {
+    const input = document.getElementById('new-key-name');
+    const out = document.getElementById('new-key-result');
+    if (!input || !out) return;
+
+    const name = (input.value || '').trim() || 'Unnamed key';
+    out.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">Creating…</p>';
+
+    try {
+        const res = await apiFetch('/api/keys', {
+            method: 'POST',
+            body: JSON.stringify({ name: name })
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+
+        // Shown once — it is not retrievable again.
+        out.innerHTML = `
+            <div style="padding: 16px; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px;">
+                <p style="font-weight: 800; margin-bottom: 8px; color: #166534;">Key created — copy it now</p>
+                <code style="display: block; padding: 10px; background: white; border-radius: 6px; font-family: monospace; font-size: 0.8rem; word-break: break-all; margin-bottom: 8px;">${data.api_key}</code>
+                <p style="font-size: 0.8rem; color: #166534;">It will not be shown again.</p>
+            </div>`;
+        input.value = '';
+        loadKeyList();
+    } catch (e) {
+        out.innerHTML = '<p style="color: #dc2626; font-size: 0.9rem;">Could not create key.</p>';
+    }
+};
+
+async function loadKeyList() {
+    const list = document.getElementById('key-list');
+    if (!list) return;
+    try {
+        const res = await apiFetch('/api/keys');
+        const keys = await res.json();
+        if (!keys.length) {
+            list.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">No keys yet.</p>';
+            return;
+        }
+        list.innerHTML = `
+            <table class="runs-table">
+                <thead><tr><th>Name</th><th>Prefix</th><th>Tier</th><th>Active</th><th>Created</th><th></th></tr></thead>
+                <tbody>${keys.map(k => `
+                    <tr>
+                        <td>${escapeHtml(k.name)}</td>
+                        <td><code>${escapeHtml(k.id.slice(0, 14))}…</code></td>
+                        <td>${escapeHtml(k.tier)}</td>
+                        <td>${k.is_active ? 'yes' : 'no'}</td>
+                        <td>${escapeHtml(new Date(k.created_at).toLocaleString())}</td>
+                        <td>${k.id === getApiKey()
+                            ? '<span style="color: var(--text-muted); font-size: 0.8rem;">current</span>'
+                            : `<button class="action-btn" style="background: var(--danger);" onclick="revokeKey('${k.id}')">Revoke</button>`}
+                        </td>
+                    </tr>`).join('')}
+                </tbody>
+            </table>`;
+    } catch (e) {
+        list.innerHTML = '<p style="color: var(--text-muted); font-size: 0.9rem;">Could not load keys.</p>';
+    }
+}
+
+window.revokeKey = async function(id) {
+    if (!confirm('Revoke this key? Anything using it will stop working immediately.')) return;
+    try {
+        const res = await apiFetch('/api/keys/' + id, { method: 'DELETE' });
+        if (res.ok) loadKeyList();
+    } catch (e) { /* apiFetch already handled 401 */ }
+};
+
+async function loadBillingStatus() {
+    const el = document.getElementById('billing-status');
+    if (!el) return;
+    try {
+        const res = await apiFetch('/api/billing/status');
+        const data = await res.json();
+        el.textContent = `Tier: ${data.tier} · key ${data.api_key.slice(0, 14)}…`;
+    } catch (e) {
+        el.textContent = 'Unavailable';
+    }
+}
+
+// Escape any value interpolated into innerHTML above.
+function escapeHtml(str) {
+    return String(str ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+    // SECURITY GATE: no key, no dashboard. Without this the app would render
+    // and every request would 401.
+    if (!getApiKey()) {
+        showKeyScreen();
+        return;
+    }
     window.addEventListener('hashchange', router);
     router();
 });

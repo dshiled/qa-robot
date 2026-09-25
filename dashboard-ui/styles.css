@@ -405,3 +405,91 @@ button {
     font-weight: 600;
     color: var(--brand-navy);
 }
+
+
+/* ---- API key gate ---- */
+.key-gate {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: var(--bg-dark, #0a192f);
+}
+.key-gate-card {
+    width: 100%;
+    max-width: 440px;
+    background: white;
+    border-radius: 16px;
+    padding: 40px;
+    box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.3);
+}
+.key-gate-card h1 {
+    font-size: 1.75rem;
+    font-weight: 900;
+    margin-bottom: 8px;
+    color: var(--brand-navy, #0a192f);
+}
+.key-gate-sub {
+    color: var(--text-muted, #64748b);
+    font-size: 0.92rem;
+    margin-bottom: 24px;
+    line-height: 1.5;
+}
+.key-gate-card label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted, #64748b);
+    margin-bottom: 8px;
+}
+.key-gate-card input {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color, #e2e8f0);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 0.88rem;
+    margin-bottom: 16px;
+    box-sizing: border-box;
+}
+.key-gate-card input:focus {
+    outline: 2px solid #0066ff;
+    outline-offset: 1px;
+    border-color: transparent;
+}
+.key-gate-card button {
+    width: 100%;
+    padding: 14px;
+    border-radius: 10px;
+    border: none;
+    background: #0066ff;
+    color: white;
+    font-weight: 800;
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+.key-gate-card button:hover { background: #0052cc; }
+.key-gate-hint {
+    margin-top: 20px;
+    font-size: 0.8rem;
+    color: var(--text-muted, #64748b);
+    line-height: 1.5;
+}
+.key-gate-hint code {
+    background: #f1f5f9;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+}
+.key-gate-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #b91c1c;
+    padding: 12px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    margin-bottom: 20px;
+}
