@@ -11,6 +11,8 @@
     "test": "node scripts/security-test.js && node scripts/store-test.js",
     "test:security": "node scripts/security-test.js",
     "test:store": "node scripts/store-test.js",
+    "test:ui": "node scripts/ui-test.js",
+    "test:cli": "node scripts/cli-injection-test.js",
     "test:e2e": "playwright test"
   },
   "keywords": [],

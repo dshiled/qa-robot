@@ -112,11 +112,18 @@ if (command === 'ui') {
     log('   (this may take a few seconds)');
 
     try {
-        execSync('bun run scripts/ai-generator.ts "' + prompt + '"', {
-            cwd: rootDir,
-            stdio: 'inherit',
-            env: { ...process.env, GEMINI_API_KEY: apiKey }
-        });
+        // SECURITY: the prompt is passed as an argv element, never concatenated
+        // into a command string. A prompt containing a quote or a shell
+        // metacharacter must not be able to run commands.
+        const isWindows = process.platform === 'win32';
+        const { execFileSync } = require('child_process');
+        execFileSync(isWindows ? 'bun.cmd' : 'bun',
+            ['run', 'scripts/ai-generator.ts', prompt],
+            {
+                cwd: rootDir,
+                stdio: 'inherit',
+                env: { ...process.env, GEMINI_API_KEY: apiKey }
+            });
         log('\n✅ Test generated. Review it in tests/ and run with: qa-robot run');
     } catch (e) {
         const stdout = (e.stdout || '').toString();
