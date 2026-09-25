@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA-Robot | Clean SaaS Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo">W</div>
+                <h2>QA-Robot</h2>
+            </div>
+            <nav>
+                <a href="#/dashboard" class="nav-item active">Dashboard</a>
+                <a href="#/mobile" class="nav-item">Mobile Tests <span style="font-size: 0.7rem; background: var(--brand-blue); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">Beta</span></a>
+                <a href="#/grid" class="nav-item">Runner Grid <span style="font-size: 0.7rem; background: var(--brand-blue); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">New</span></a>
+                <a href="#/audit" class="nav-item">Audit Log <span style="font-size: 0.7rem; background: var(--brand-navy); color: white; padding: 2px 6px; border-radius: 4px; margin-left: 4px;">New</span></a>
+                <a href="#/runs" class="nav-item">Test Runs</a>
+                <a href="#/videos" class="nav-item">Failed Videos</a>
+                <a href="#/settings" class="nav-item">Settings</a>
+            </nav>
+            <div class="sidebar-footer">
+                <p>Enterprise Tier Active</p>
+                <button class="upgrade-btn" onclick="window.location.hash='#/settings'">Manage Billing</button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="app-root">
+            <!-- Injected by app.js -->
+        </main>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div id="video-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Playback: Failure</h3>
+                <button id="close-modal" class="close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="video-placeholder" id="video-container">
+                    <p>Loading Headless Browser Recording...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="video-player.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QA-Robot | Automated Robotic E2E Testing for Developers & Enterprise</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #ffffff;
+            --text-dark: #0a192f;
+            --text-muted: #64748b;
+            --brand-blue: #0066ff;
+            --brand-blue-hover: #0052cc;
+            --border-color: #e2e8f0;
+            --shadow: 0 10px 30px -5px rgba(0, 102, 255, 0.08);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+        body { background: var(--bg-main); color: var(--text-dark); overflow-x: hidden; }
+        
+        /* Container */
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+        
+        /* Nav */
+        header.landing-nav {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 24px 0; border-bottom: 1px solid var(--border-color);
+        }
+        .brand-logo { display: flex; align-items: center; gap: 12px; font-size: 1.4rem; font-weight: 900; color: var(--text-dark); text-decoration: none; }
+        .logo-box { width: 36px; height: 36px; background: var(--brand-blue); border-radius: 10px; color: white; display: flex; align-items: center; justify-content: center; font-weight: 900; }
+        
+        nav.nav-links { display: flex; gap: 32px; align-items: center; }
+        nav.nav-links a { text-decoration: none; color: var(--text-muted); font-weight: 600; font-size: 0.95rem; transition: color 0.2s; }
+        nav.nav-links a:hover { color: var(--brand-blue); }
+        
+        .btn-primary {
+            background: var(--brand-blue); color: white; padding: 12px 24px; border-radius: 10px;
+            text-decoration: none; font-weight: 700; font-size: 0.95rem; transition: background 0.2s; border: none; cursor: pointer;
+            box-shadow: 0 4px 14px rgba(0, 102, 255, 0.3);
+        }
+        .btn-primary:hover { background: var(--brand-blue-hover); }
+        
+        .btn-secondary {
+            background: #f1f5f9; color: var(--text-dark); padding: 12px 24px; border-radius: 10px;
+            text-decoration: none; font-weight: 700; font-size: 0.95rem; margin-left: 12px; transition: background 0.2s;
+        }
+        .btn-secondary:hover { background: #e2e8f0; }
+
+        /* Hero */
+        .hero-section { display: flex; align-items: center; justify-content: space-between; gap: 48px; padding: 80px 0; }
+        .hero-content { flex: 1; max-width: 600px; }
+        .hero-badge { display: inline-block; background: #eff6ff; color: var(--brand-blue); padding: 6px 16px; border-radius: 20px; font-weight: 700; font-size: 0.85rem; margin-bottom: 20px; }
+        .hero-title { font-size: 3.4rem; font-weight: 900; line-height: 1.1; margin-bottom: 20px; letter-spacing: -1px; }
+        .hero-subtitle { font-size: 1.15rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 36px; }
+        .hero-image-wrap { flex: 1; display: flex; justify-content: center; }
+        .hero-image { max-width: 450px; width: 100%; height: auto; object-fit: contain; }
+
+        /* Features */
+        .features-section { padding: 80px 0; background: #f8fafc; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); }
+        .section-header { text-align: center; max-width: 700px; margin: 0 auto 60px; }
+        .section-header h2 { font-size: 2.2rem; font-weight: 900; margin-bottom: 16px; }
+        .section-header p { font-size: 1.1rem; color: var(--text-muted); }
+        
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 32px; }
+        .feature-card { background: white; border: 1px solid var(--border-color); border-radius: 16px; padding: 32px; box-shadow: var(--shadow); }
+        .feature-icon { width: 48px; height: 48px; background: #eff6ff; color: var(--brand-blue); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; font-weight: 900; margin-bottom: 20px; }
+        .feature-card h3 { font-size: 1.25rem; font-weight: 800; margin-bottom: 12px; }
+        .feature-card p { color: var(--text-muted); line-height: 1.5; font-size: 0.95rem; }
+
+        /* Pricing */
+        .pricing-section { padding: 80px 0; }
+        .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 32px; max-width: 900px; margin: 0 auto; }
+        .price-card { background: white; border: 1px solid var(--border-color); border-radius: 20px; padding: 40px; box-shadow: var(--shadow); display: flex; flex-direction: column; justify-content: space-between; }
+        .price-card.featured { border: 2px solid var(--brand-blue); position: relative; }
+        .price-badge { position: absolute; top: -14px; right: 24px; background: var(--brand-blue); color: white; padding: 4px 14px; border-radius: 20px; font-size: 0.8rem; font-weight: 800; }
+        .price-card h3 { font-size: 1.4rem; font-weight: 800; margin-bottom: 8px; }
+        .price-card .price { font-size: 2.8rem; font-weight: 900; margin-bottom: 20px; }
+        .price-card .price span { font-size: 1rem; color: var(--text-muted); font-weight: 500; }
+        .price-card ul { list-style: none; margin-bottom: 32px; }
+        .price-card ul li { padding: 8px 0; color: var(--text-muted); font-weight: 500; font-size: 0.95rem; display: flex; align-items: center; gap: 8px; }
+        .price-card ul li::before { content: "✓"; color: var(--brand-blue); font-weight: 900; }
+
+        /* Footer */
+        footer { padding: 40px 0; border-top: 1px solid var(--border-color); text-align: center; color: var(--text-muted); font-size: 0.9rem; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Navigation -->
+        <header class="landing-nav">
+            <a href="/" class="brand-logo">
+                <div class="logo-box">W</div>
+                QA-Robot
+            </a>
+            <nav class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#pricing">Pricing</a>
+                <a href="/app" class="btn-primary">Launch Dashboard →</a>
+            </nav>
+        </header>
+
+        <!-- Hero Section -->
+        <section class="hero-section">
+            <div class="hero-content">
+                <span class="hero-badge">Automated E2E Testing Suite</span>
+                <h1 class="hero-title">Great Infrastructure. <br><span style="color: var(--brand-blue);">Better Results.</span></h1>
+                <p class="hero-subtitle">Stop paying armies of manual QA testers. Run headless Playwright browser tests directly in your deployment pipeline and capture video recordings of every code failure.</p>
+                <div>
+                    <a href="/app" class="btn-primary">Open SaaS Dashboard</a>
+                    <a href="#pricing" class="btn-secondary">View Pricing</a>
+                </div>
+            </div>
+            <div class="hero-image-wrap">
+                <img src="mascot.jpg" alt="QA Robot Mascot" class="hero-image">
+            </div>
+        </section>
+    </div>
+
+    <!-- Features Section -->
+    <section class="features-section" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Built for Developers & Enterprise Scale</h2>
+                <p>Ensure zero regression bugs reach your production servers or local mini-PCs.</p>
+            </div>
+            <div class="grid-3">
+                <div class="feature-card">
+                    <div class="feature-icon">▶</div>
+                    <h3>Automated Pre-Deploy Checks</h3>
+                    <p>Integrates directly into your deployment pipelines. If a test fails, code deployment is instantly blocked before users are affected.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎥</div>
+                    <h3>MP4 Video Recordings</h3>
+                    <p>Headless Playwright browsers record every single test run. Review MP4 video artifacts instantly inside your cloud dashboard.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🖥</div>
+                    <h3>Local & Mini-PC Support</h3>
+                    <p>Deploy locally on dedicated hardware mini-PCs or run seamlessly in cloud production environments.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section class="pricing-section" id="pricing">
+        <div class="container">
+            <div class="section-header">
+                <h2>Open-Core Pricing</h2>
+                <p>Free for individual developers. Powerful enterprise cloud features for teams.</p>
+            </div>
+            <div class="pricing-grid">
+                <!-- Free Tier -->
+                <div class="price-card">
+                    <div>
+                        <h3>Developer CLI</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 16px;">For individual engineers & open source</p>
+                        <div class="price">$0 <span>/ forever free</span></div>
+                        <ul>
+                            <li>Open Source Playwright CLI</li>
+                            <li>Unlimited Local Headless Runs</li>
+                            <li>HTML Test Reports</li>
+                            <li>Community Support</li>
+                        </ul>
+                    </div>
+                    <a href="/app" class="btn-secondary" style="text-align: center; display: block; margin: 0;">Get Started Free</a>
+                </div>
+
+                <!-- Enterprise Tier -->
+                <div class="price-card featured">
+                    <span class="price-badge">POPULAR FOR ENTERPRISE</span>
+                    <div>
+                        <h3>Cloud Dashboard</h3>
+                        <p style="color: var(--text-muted); margin-bottom: 16px;">For scaling engineering teams & hospitals</p>
+                        <div class="price">$1,000 <span>/ month</span></div>
+                        <ul>
+                            <li>Everything in Free Tier</li>
+                            <li>Hosted Cloud Dashboard UI</li>
+                            <li>Automated Video Artifact Retention</li>
+                            <li>PulseOps Deployment Safeguard</li>
+                            <li>Dedicated Support & SLA</li>
+                        </ul>
+                    </div>
+                    <a href="/app" class="btn-primary" style="text-align: center; display: block;">Launch Enterprise Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p>© 2026 QA-Robot Inc. All rights reserved. Automated E2E Testing Infrastructure.</p>
+        </div>
+    </footer>
+
+</body>
+</html>

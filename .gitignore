@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+
+# Secrets — NEVER commit real credentials
+.env
+.env.local
+.env.*.local
+tmp_key.json
+*.key
+*.pem
+!*.example
+
+# Test artifacts / generated output
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Runtime data (generated at runtime)
+grid-runs/
+ci-runs/
+audit-logs/
+uploads/
+logs/
+*.log
+
+# Generated runner scripts
+mobile-run-*.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
