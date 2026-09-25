@@ -119,23 +119,10 @@ const views = {
             </div>
         </div>
 
-        <!-- SAML SSO Section -->
-        <div class="kpi-card" style="padding: 32px; border: 1px solid var(--border-color); background: #0f172a;">
-            <h3 style="font-size: 1.2rem; margin-bottom: 12px; color: var(--brand-navy); font-weight: 800;">SAML Single Sign-On</h3>
-            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 16px;">Enterprise SSO via your identity provider (Okta, Azure AD, Google Workspace, Auth0, etc.)</p>
-
-            <div id="saml-status" style="padding: 12px 16px; border-radius: 8px; background: #1e293b; margin-bottom: 16px;">
-                <span style="color: var(--text-muted); font-size: 0.85rem;">Checking SAML configuration...</span>
-            </div>
-
-            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                <button class="action-btn" id="saml-login-btn" style="background: #7c3aed;">Login via SSO</button>
-                <button class="action-btn" style="background: var(--danger);" onclick="if(confirm('Logout from all sessions?')) window.location.href='/saml/logout'">Logout (SLO)</button>
-            </div>
-            <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 12px;">
-                Your SAML metadata is available at: <code style="background: #1e293b; padding: 2px 6px; border-radius: 4px; font-size: 0.75rem;">/saml/metadata</code>
-            </p>
-        </div>
+        <!-- SSO Section — REMOVED.
+             SAML is disabled because assertion signatures were never verified.
+             Do not restore this UI until saml.js has real signature validation
+             and the user store exists. See saml.js SAML_IMPLEMENTATION_COMPLETE. -->
     `,
     mobile: `
         <header style="margin-bottom: 24px;">

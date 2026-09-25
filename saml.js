@@ -443,12 +443,29 @@ See .env.example for full list.`);
 }
 
 // ---------------------------------------------------------------------------
-// Health check — is SAML configured and usable?
+// Health check — is SAML configured AND safe to enable?
+//
+// SECURITY: configuration alone is NOT sufficient. These routes must never be
+// mounted while validateSamlResponse() is a stub, because an unsigned,
+// unvalidated assertion is equivalent to no authentication at all.
 // ---------------------------------------------------------------------------
+
+// Set to true only after a real signature-verifying library is integrated and
+// the missing user-store functions (getUserByEmail/createUser/logAuthEvent)
+// are implemented. See the integration outline above validateSamlResponse().
+const SAML_IMPLEMENTATION_COMPLETE = false;
 
 function isSamlConfigured(tenant = 'default') {
   const config = getSamlConfig(tenant);
   return config !== null;
+}
+
+/**
+ * True only when SAML is both configured AND safe to serve.
+ * server.js must gate mounting on this, not on isSamlConfigured().
+ */
+function isSamlSafeToEnable(tenant = 'default') {
+  return SAML_IMPLEMENTATION_COMPLETE && isSamlConfigured(tenant);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,7 +477,9 @@ module.exports = {
   getSamlConfig,
   generateSPMetadata,
   buildAuthRequest,
-  validateSamlResponse,  // STUB — replace with real validation
-  isSamlConfigured,
+  validateSamlResponse,  // STUB — does NOT verify signatures. Unsafe.
+  isSamlConfigured,       // config present (NOT sufficient to enable)
+  isSamlSafeToEnable,     // use this to gate mounting
+  SAML_IMPLEMENTATION_COMPLETE,
   SAML_ENV
 };

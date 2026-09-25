@@ -1,7 +1,14 @@
+// ============================================================================
+// Load .env FIRST — before any module reads process.env.
+// Without this, GEMINI_API_KEY / STRIPE_SECRET_KEY / PORT are all undefined
+// unless the shell exports them, and features silently no-op.
+// ============================================================================
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
-const path = require('path');
 const { exec } = require('child_process');
 const multer = require('multer');
 const crypto = require('crypto');
@@ -11,9 +18,6 @@ const auth = require('./auth-billing.js');
 
 // Load audit log module
 const audit = require('./audit-log.js');
-
-// Load SAML SSO module
-const saml = require('./saml.js');
 
 // Load runner grid module
 const grid = require('./runner-grid.js');
@@ -25,20 +29,41 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const upload = multer({ dest: 'uploads/' });
 
-app.use(cors());
+// SECURITY: CORS is restricted by default. A blanket cors() lets any origin
+// call this API. Set ALLOWED_ORIGINS to a comma-separated list to permit
+// specific origins (e.g. https://app.example.com).
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
+if (allowedOrigins.length > 0) {
+    app.use(cors({ origin: allowedOrigins, credentials: true }));
+    console.log('[CORS] Restricted to: ' + allowedOrigins.join(', '));
+} else {
+    // Default: same-origin only. No Access-Control-Allow-Origin header is
+    // emitted, so browsers block cross-origin XHR from other sites.
+    app.use(cors({ origin: false }));
+    console.log('[CORS] Same-origin only (set ALLOWED_ORIGINS to widen)');
+}
+
 app.use(express.json());
 
 // Serve static assets
 app.use(express.static(path.join(__dirname, 'dashboard-ui'), { index: false }));
 
-// ---- SAML SSO Routes ----
-// Mounted before auth middleware so the callback can create sessions.
-if (saml.isSamlConfigured()) {
-    saml.attachRoutes(app, auth);
-    console.log('[SAML] SSO routes mounted at /saml/*');
-} else {
-    console.log('[SAML] Not configured — SAML routes disabled. Set SAML_ENTRY_POINT, SAML_ISSUER, SAML_CERT in .env.');
-}
+// ---- SAML SSO: DISABLED (SECURITY) ----
+// SAML is NOT mounted. validateSamlResponse() never verifies the XML
+// signature — it regex-scrapes <NameID> out of the POST body and returns
+// valid:true, so anyone able to reach /saml/callback could forge an
+// assertion and log in as any user. It also calls auth.getUserByEmail(),
+// auth.createUser() and auth.logAuthEvent(), none of which exist.
+//
+// Shipping this mounted while selling a security product would be worse
+// than having no SSO at all. To re-enable, a real signature-verifying
+// library (@node-saml/node-saml-passport or xml-crypto) must be integrated
+// and the missing user-store functions implemented first.
+// See saml.js for the integration outline.
 
 // Public Landing Page
 app.get('/', (req, res) => {
