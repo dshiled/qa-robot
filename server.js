@@ -174,7 +174,22 @@ app.post('/api/run-tests', (req, res) => {
     const spec = req.body && req.body.spec ? req.body.spec : null;
     const browsers = req.body && req.body.browsers ? req.body.browsers : ['chromium', 'firefox', 'webkit'];
 
-    console.log(`[Backend] Triggering test run${spec ? ' (' + spec + ')' : ''} on ${browsers.join(', ')}...`);
+    // Create a grid job. createJob validates spec/browsers and THROWS on
+    // invalid input — surface that as a 400 rather than a 500/crash.
+    let job;
+    try {
+        job = grid.createJob({
+            type: 'e2e',
+            spec: spec,
+            browsers: browsers,
+            requested_by: 'dashboard'
+        });
+    } catch (e) {
+        console.warn('[Backend] Rejected test run:', e.message);
+        return res.status(400).json({ success: false, error: e.message });
+    }
+
+    console.log(`[Backend] Triggering test run${spec ? ' (' + spec + ')' : ''} on ${job.browsers.join(', ')}...`);
 
     // Audit log: test run started
     audit.logTestRun({
@@ -182,17 +197,9 @@ app.post('/api/run-tests', (req, res) => {
         actor_type: 'system',
         tenant: 'default',
         target: null,
-        details: { spec: spec || 'all', browsers: browsers, triggered_by: 'dashboard' },
+        details: { spec: job.spec || 'all', browsers: job.browsers, triggered_by: 'dashboard' },
         ip: req.ip || req.connection.remoteAddress,
         user_agent: req.headers['user-agent']
-    });
-
-    // Create a grid job
-    const job = grid.createJob({
-        type: 'e2e',
-        spec: spec,
-        browsers: browsers,
-        requested_by: 'dashboard'
     });
 
     // Try to dispatch to a runner
@@ -232,13 +239,20 @@ app.post('/api/run-tests', (req, res) => {
 
 // Create a grid job (programmatic API)
 app.post('/api/grid/jobs', (req, res) => {
-    const job = grid.createJob({
-        type: req.body.type || 'e2e',
-        target_url: req.body.target_url,
-        spec: req.body.spec,
-        browsers: req.body.browsers || ['chromium', 'firefox', 'webkit'],
-        requested_by: req.body.requested_by || 'api'
-    });
+    // createJob validates spec/browsers and throws on invalid input.
+    let job;
+    try {
+        job = grid.createJob({
+            type: req.body.type,
+            target_url: req.body.target_url,
+            spec: req.body.spec,
+            browsers: req.body.browsers,
+            requested_by: req.body.requested_by || 'api'
+        });
+    } catch (e) {
+        console.warn('[Grid API] Rejected job:', e.message);
+        return res.status(400).json({ error: e.message });
+    }
 
     const dispatch = grid.dispatchJob(job.id);
     res.json({
@@ -250,12 +264,22 @@ app.post('/api/grid/jobs', (req, res) => {
     });
 });
 
+// SECURITY: jobId arrives from the URL and is used to build a filesystem
+// path. Reject anything that is not a plain job-XXXXXXXX id, otherwise
+// path traversal could read/write arbitrary .json files.
+function isValidJobId(jobId) {
+    return typeof jobId === 'string' && /^job-[0-9a-f]{8}$/.test(jobId);
+}
+
 // Get job status
 app.get('/api/grid/jobs/:jobId', (req, res) => {
-    const job = grid.JOBS.get(req.params.jobId);
-    // Access module internals via the export pattern — read from disk as fallback
+    const jobId = req.params.jobId;
+    if (!isValidJobId(jobId)) {
+        return res.status(400).json({ error: 'Invalid job id' });
+    }
+    // Read from disk (the authoritative store for completed jobs)
     try {
-        const jobPath = path.join(__dirname, 'grid-runs', `${req.params.jobId}.json`);
+        const jobPath = path.join(__dirname, 'grid-runs', `${jobId}.json`);
         if (fs.existsSync(jobPath)) {
             const jobData = JSON.parse(fs.readFileSync(jobPath, 'utf8'));
             return res.json(jobData);
@@ -273,6 +297,9 @@ app.get('/api/grid/jobs', (req, res) => {
 // Complete a job (called by runner after execution)
 app.post('/api/grid/jobs/:jobId/complete', (req, res) => {
     const jobId = req.params.jobId;
+    if (!isValidJobId(jobId)) {
+        return res.status(400).json({ error: 'Invalid job id' });
+    }
     const { passed, duration, output, video_path } = req.body;
 
     // Update via grid module

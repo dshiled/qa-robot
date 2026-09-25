@@ -16,6 +16,70 @@ const RUNNER_JOBS = new Map(); // runner_id -> Set of job_ids
 const GRID_DIR = path.join(__dirname, 'grid-runs');
 if (!fs.existsSync(GRID_DIR)) fs.mkdirSync(GRID_DIR, { recursive: true });
 
+// ---- Input Validation (security) ----
+// Everything below this line treats job fields as UNTRUSTED user input.
+// job.spec and job.browsers are concatenated into a shell command, so they
+// MUST be validated against a strict allowlist before use.
+
+const ALLOWED_BROWSERS = new Set(['chromium', 'firefox', 'webkit', 'mobile']);
+const SPEC_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+const MAX_SPEC_LENGTH = 200;
+
+/**
+ * Validate a spec/test-file name. Only plain filenames are permitted —
+ * no path separators, no shell metacharacters, no traversal.
+ * Returns the safe spec, or throws.
+ */
+function validateSpec(spec) {
+    if (spec === undefined || spec === null || spec === '') return null;
+    if (typeof spec !== 'string') {
+        throw new Error('Invalid spec: must be a string');
+    }
+    const trimmed = spec.trim();
+    if (trimmed.length > MAX_SPEC_LENGTH) {
+        throw new Error('Invalid spec: too long (max ' + MAX_SPEC_LENGTH + ' chars)');
+    }
+    // Reject traversal / separators BEFORE basename, since path.basename()
+    // would strip '../' and let the traversal through as a "valid" name.
+    if (trimmed.includes('/') || trimmed.includes('\\') ||
+        trimmed.includes('\0') || trimmed === '..' || trimmed === '.') {
+        throw new Error('Invalid spec: path separators not allowed');
+    }
+    // Must end in a recognised test extension
+    if (!/\.(spec|test)\.[cm]?[jt]sx?$/.test(trimmed)) {
+        throw new Error('Invalid spec: must be a test file (e.g. login.spec.ts)');
+    }
+    // Filename only — no shell metacharacters
+    if (!SPEC_NAME_PATTERN.test(trimmed)) {
+        throw new Error('Invalid spec: contains illegal characters');
+    }
+    return trimmed;
+}
+
+/**
+ * Validate the browser list against the allowlist.
+ * Returns a clean array, or throws.
+ */
+function validateBrowsers(browsers) {
+    if (browsers === undefined || browsers === null) {
+        return ['chromium', 'firefox', 'webkit'];
+    }
+    if (!Array.isArray(browsers)) {
+        throw new Error('Invalid browsers: must be an array');
+    }
+    if (browsers.length === 0) {
+        return ['chromium', 'firefox', 'webkit'];
+    }
+    const clean = [];
+    for (const b of browsers) {
+        if (typeof b !== 'string' || !ALLOWED_BROWSERS.has(b)) {
+            throw new Error('Invalid browser: not allowed');
+        }
+        if (!clean.includes(b)) clean.push(b);
+    }
+    return clean;
+}
+
 // ---- Helpers ----
 
 function generateJobId() {
@@ -34,15 +98,21 @@ function timestamp() {
 
 function createJob(options) {
     options = options || {};
+
+    // SECURITY: validate untrusted input before it can reach a shell.
+    // Throws on invalid spec/browsers — callers must handle this.
+    const safeSpec = validateSpec(options.spec);
+    const safeBrowsers = validateBrowsers(options.browsers);
+
     const jobId = generateJobId();
     const now = timestamp();
 
     const job = {
         id: jobId,
-        type: options.type || 'e2e',       // e2e | api | mobile
+        type: options.type === 'mobile' ? 'mobile' : 'e2e',   // e2e | mobile
         target_url: options.target_url || process.env.TARGET_URL || 'http://localhost:3000',
-        spec: options.spec || null,
-        browsers: options.browsers || ['chromium', 'firefox', 'webkit'],
+        spec: safeSpec,
+        browsers: safeBrowsers,
         app_binary_path: options.app_binary_path || null,
         requested_by: options.requested_by || 'dashboard',
         status: 'queued',
@@ -198,16 +268,54 @@ function executeLocally(job) {
 
         updateJob(job.id, { status: 'running', started_at: timestamp() });
 
-        const { exec } = require('child_process');
         const resultsDir = path.join(__dirname, 'test-results');
-
         if (!fs.existsSync(resultsDir)) fs.mkdirSync(resultsDir, { recursive: true });
 
-        let cmd = 'npx playwright test';
-        if (job.spec) cmd += ' ' + job.spec;
-        if (job.browsers && job.browsers.length === 1) cmd += ' --project=' + job.browsers[0];
+        // SECURITY: build an argv array and use execFile (no shell), so
+        // nothing in spec/browsers can ever be interpreted by a shell.
+        // This is the fix for the unauthenticated RCE in /api/run-tests.
+        const { execFile } = require('child_process');
 
-        exec(cmd, { cwd: __dirname }, (error, stdout, stderr) => {
+        // npx is a .cmd shim on Windows — execFile needs shell:true there
+        // to resolve it, but args are still passed as an array, never
+        // interpolated into a command string.
+        const isWindows = process.platform === 'win32';
+        const npxCmd = isWindows ? 'npx.cmd' : 'npx';
+
+        const playwrightArgs = ['playwright', 'test'];
+        if (job.spec) {
+            // Defensive: re-validate. createJob already checked, but this
+            // function is reachable with job objects loaded from disk.
+            let safeSpec;
+            try {
+                safeSpec = validateSpec(job.spec);
+            } catch (e) {
+                const result = {
+                    passed: false,
+                    duration: '0s',
+                    output: 'Blocked: ' + e.message,
+                    job_id: job.id,
+                    executed_at: timestamp(),
+                    runner: 'local',
+                    error: 'invalid_spec'
+                };
+                completeJob(job.id, result);
+                return resolve(result);
+            }
+            if (safeSpec) playwrightArgs.push(safeSpec);
+        }
+        if (job.browsers && job.browsers.length === 1 && ALLOWED_BROWSERS.has(job.browsers[0])) {
+            playwrightArgs.push('--project=' + job.browsers[0]);
+        }
+
+        const execOptions = {
+            cwd: __dirname,
+            shell: isWindows,          // needed only to resolve npx.cmd
+            windowsHide: true,
+            timeout: 15 * 60 * 1000   // 15 min hard cap
+        };
+
+        execFile(npxCmd, playwrightArgs, execOptions, (error, stdout, stderr) => {
             const passed = !error;
             const durationMatch = (stdout || '').match(/(\d+(?:\.\d+)s)/);
             const duration = durationMatch ? durationMatch[1] : '0s';
@@ -477,5 +585,8 @@ module.exports = {
     getGridStatus: getGridStatus,
     generateJobId: generateJobId,
     generateRunnerId: generateRunnerId,
-    findVideoFiles: findVideoFiles
+    findVideoFiles: findVideoFiles,
+    // Exported for testing / reuse by API layer
+    validateSpec: validateSpec,
+    validateBrowsers: validateBrowsers
 };

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "ui": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node scripts/security-test.js",
+    "test:e2e": "playwright test"
   },
   "keywords": [],
   "author": "",
