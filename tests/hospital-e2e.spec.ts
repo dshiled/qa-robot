@@ -1,45 +1,82 @@
 import { test, expect } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 
-test.describe('QA-Robot Dashboard Demo Flow', () => {
-  
-  test('should verify the marketing landing page, open the SaaS dashboard, and trigger the test pipeline', async ({ page }) => {
-    // Navigate to our QA-Robot landing page
-    const targetUrl = process.env.TARGET_URL || 'http://localhost:3000';
-    await page.goto(targetUrl);
+// Target defaults to a locally running QA-Robot server.
+const targetUrl = process.env.TARGET_URL || 'http://localhost:3000';
 
-    // Wait for the hero section to be visible (matched to actual landing page markup)
-    await page.waitForSelector('.hero-title', { timeout: 15000 });
+// The dashboard requires an API key. Read it from the first-run file so the
+// test can unlock the UI; skip rather than fail if the file is absent.
+const keyFile = path.join(__dirname, '..', 'data', 'ADMIN_KEY.txt');
+function readAdminKey(): string | null {
+    if (!fs.existsSync(keyFile)) return null;
+    const line = fs.readFileSync(keyFile, 'utf8')
+        .split('\n').find(l => l.trim().startsWith('qa_live_'));
+    return line ? line.trim() : null;
+}
 
-    // Small pause so the video looks human-driven
-    await page.waitForTimeout(800);
+test.describe('QA-Robot public surface', () => {
 
-    // Click "Open SaaS Dashboard" — the actual button text on the landing page
-    const openDashboardBtn = page.getByRole('link', { name: /Open SaaS Dashboard/i });
-    if (await openDashboardBtn.isVisible()) {
-      await openDashboardBtn.click();
-    } else {
-      // fallback: click the primary CTA by text
-      await page.getByRole('button', { name: /Open SaaS Dashboard/i }).click();
-    }
+    test('landing page loads and links to the dashboard', async ({ page }) => {
+        await page.goto(targetUrl);
+        await page.waitForSelector('.hero-title', { timeout: 15000 });
 
-    // Wait for the dashboard to load (it has a "Run Pipeline" button)
-    await page.waitForSelector('.sidebar', { timeout: 15000 });
-    await page.waitForTimeout(600);
+        // Hero states the actual positioning.
+        await expect(page.locator('.hero-title')).toContainText(/audits them/i);
 
-    // Verify the dashboard rendered
-    await expect(page.locator('.sidebar')).toBeVisible();
+        // The CTA now reads "Run it on your infrastructure".
+        const cta = page.getByRole('link', { name: /Run it on your infrastructure/i });
+        await expect(cta).toBeVisible();
+    });
 
-    // Find and hover the "Run Pipeline" button to simulate a real interaction
-    const runPipelineBtn = page.getByRole('button', { name: /Run Pipeline/i });
-    if (await runPipelineBtn.isVisible()) {
-      await runPipelineBtn.hover();
-      await page.waitForTimeout(500);
-    }
+    test('security section states SAML is disabled', async ({ page }) => {
+        await page.goto(targetUrl);
+        // The page must not advertise SSO, which is switched off.
+        await expect(page.getByText('SSO is not enabled')).toBeVisible();
+        await expect(page.getByText('MP4 Video Recordings')).toHaveCount(0);
+    });
 
-    // Take a final pause so the captured video has meaningful interaction
-    await page.waitForTimeout(400);
+    test('dashboard is gated behind an API key and unlocks with a valid one', async ({ page }) => {
+        const key = readAdminKey();
+        test.skip(!key, 'No data/ADMIN_KEY.txt — run the server once to create one');
 
-    console.log('✅ Demo flow executed successfully — video captured.');
-  });
+        await page.goto(targetUrl + '/app');
+        await page.waitForSelector('.key-gate', { timeout: 15000 });
 
+        // Without a key the dashboard must not be rendered.
+        await expect(page.locator('#kpi-container')).toHaveCount(0);
+
+        await page.fill('#api-key-input', key);
+        await page.click('#key-submit');
+
+        // After unlocking, the gate is gone and the shell renders.
+        await expect(page.locator('.key-gate')).toHaveCount(0, { timeout: 15000 });
+        await expect(page.locator('.sidebar')).toBeVisible();
+    });
+
+    test('a wrong API key is rejected', async ({ page }) => {
+        await page.goto(targetUrl + '/app');
+        await page.waitForSelector('.key-gate', { timeout: 15000 });
+
+        await page.fill('#api-key-input', 'qa_live_' + '0'.repeat(64));
+        await page.click('#key-submit');
+
+        // The gate stays up and the bad key is not persisted.
+        await expect(page.locator('.key-gate')).toBeVisible();
+        const stored = await page.evaluate(() => sessionStorage.getItem('qaRobotApiKey'));
+        expect(stored).toBeNull();
+    });
+
+    test('saml routes are not mounted', async ({ request }) => {
+        for (const path of ['/saml/metadata', '/saml/login', '/saml/callback']) {
+            const res = await request.get(targetUrl + path);
+            expect(res.status(), `${path} must not be reachable`).toBe(404);
+        }
+    });
+
+    test('api rejects unauthenticated requests', async ({ request }) => {
+        const res = await request.get(targetUrl + '/api/runs');
+        expect(res.status()).toBe(401);
+    });
 });
+

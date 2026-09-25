@@ -35,8 +35,11 @@ MITM and certificate manipulation, encoded payloads, and more.
 
 ## Requirements
 
-- **Node.js 22 or newer** — uses the built-in `node:sqlite`, no native build step
+- **Node.js 22.5 or newer** — uses the built-in `node:sqlite`, no native build step
 - No database server. No Docker. No cloud account.
+
+Continuous integration runs the same suites on every push and pull request.
+
 
 ## Install
 
@@ -70,12 +73,16 @@ Open **http://localhost:3000/app** and paste that key. It is held in
 ## Test
 
 ```bash
-npm test              # security + store suites
+npm test              # security + store suites (53 assertions)
+npm run test:cli      # CLI command-injection proof
 npm run test:ui       # dashboard key gate, in a real browser
+npm run test:e2e      # Playwright specs — starts the server itself
 ```
 
-`test:ui` needs the server running. It uses the chromium already installed for
-Playwright.
+`test:ui` needs the server already running (`npm run ui` in another terminal).
+`test:e2e` does not — `playwright.config.ts` starts and stops it via `webServer`.
+
+CI runs all four on every push and pull request.
 
 ---
 
@@ -204,4 +211,8 @@ marked failed with an explicit reason rather than hanging.
 
 ## License
 
-ISC
+ISC — see [LICENSE](LICENSE).
+
+The self-hosted tier is free to use, modify and redistribute. If you want to
+offer a paid hosted service on top of this code, you may need a different
+license; the current one does not restrict that.

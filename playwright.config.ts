@@ -26,14 +26,26 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: process.env.TARGET_URL || 'http://localhost:5050',
+    baseURL: process.env.TARGET_URL || 'http://localhost:3000',
 
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
-    
-    /* RECORD VIDEO: This is the premium enterprise feature.
-       We set this to 'on' so a video is ALWAYS recorded for the SaaS dashboard. */
-    video: 'on',
+
+    /* Record video. Always on locally for the dashboard artifacts, but off in
+       CI to keep the run fast and the artifacts small. */
+    video: process.env.CI ? 'off' : 'on',
+  },
+
+  /* The specs exercise the QA-Robot server itself, so start it for the run
+     and stop it afterwards. This is what lets CI run the suite unattended
+     instead of relying on a manually started process. */
+  webServer: {
+    command: 'node server.js',
+    url: 'http://localhost:3000/api/health',
+    reuseExistingServer: !process.env.CI,
+    timeout: 30_000,
+    stdout: 'pipe',
+    stderr: 'pipe'
   },
 
   /* Configure projects for major browsers */
