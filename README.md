@@ -10,6 +10,36 @@ Everything runs on your own hardware. No test traffic leaves your network.
 
 ---
 
+## Quick start
+
+```bash
+git clone https://github.com/dshiled/qa-robot.git
+cd qa-robot
+npm install        # also downloads the Playwright browsers
+npm run ui         # → http://localhost:3000
+```
+
+On first run an API key is generated and printed to the console:
+
+```
+================================================================
+  FIRST RUN — no API keys existed, so an admin key was created
+================================================================
+  qa_live_<64 hex characters>
+```
+
+Open **http://localhost:3000/app** and paste it. The same key is written to
+`data/ADMIN_KEY.txt`.
+
+No `.env`, database, or account is required. Keys and history live in a SQLite
+file (`data/qa-robot.db`) on your machine.
+
+**Browser download:** `npm install` fetches chromium, firefox and webkit
+(~1–2 min, ~400 MB). If you skip it, run `npm run setup:browsers` before
+`qa-robot run`.
+
+---
+
 ## Why this exists
 
 A QA tool that writes tests by executing AI output is a remote code execution
@@ -163,6 +193,21 @@ provider and SAML config are silently ignored.
 
 ---
 
+## License
+
+**AGPL-3.0.** See [LICENSE](LICENSE).
+
+Self-hosting is free and unlimited. You can read it, run it, change it, and
+contribute back. Two conditions come with the license:
+
+- **Share modifications.** If you run a modified version as a service over a
+  network, you must offer that source to the people using it (AGPL section 13).
+- **No competing hosted service.** You may not take this code and offer it as a
+  hosted QA product to third parties.
+
+If you want QA-Robot managed for you, with support and an SLA, that is the
+paid offering — and it funds the maintenance of this project.
+
 ## Security posture
 
 Stated plainly, including the gaps. If you are evaluating this for a regulated
@@ -213,12 +258,4 @@ bin/cli.js         Command line interface
 
 State is written to SQLite and rehydrated on boot. Jobs interrupted by a crash are
 marked failed with an explicit reason rather than hanging.
-
-## Status
-
-Proprietary. All rights reserved.
-
-No license has been granted. This code is not open source, and no permission
-to use, copy, modify, or distribute it is given. If you have a use case you
-would like to discuss, get in touch.
 

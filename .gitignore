@@ -31,24 +31,13 @@ data/
 *.db-shm
 ADMIN_KEY.txt
 newkey.txt
-server.log
-pw*.log
-f.log
-f2.log
-g.log
-v.log
-b.log
-s.log
-s2.log
-l.log
-r.log
-e.log
-h.log
-winget.log
-gh.log
-winget.err
-gh.err
+
+# Runtime output — server logs, scratch files, test reports
 *.pid
+*.err
+*.out
+playwright-report/
+videos/
 
 # Generated runner scripts
 mobile-run-*.js

@@ -27,7 +27,26 @@ const promptSafety = require('./prompt-safety.js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const upload = multer({ dest: 'uploads/' });
+// SECURITY: uploads are bounded. Previously multer had no limits at all, so a
+// single request could fill the disk. MAX_UPLOAD_BYTES is overridable because
+// real .apk files can be large; anything beyond it is rejected with a 413
+// rather than being written to disk.
+const MAX_UPLOAD_BYTES = parseInt(process.env.MAX_UPLOAD_BYTES) || 200 * 1024 * 1024;
+const ALLOWED_UPLOAD_EXT = ['.apk', '.ipa'];
+
+const upload = multer({
+    dest: 'uploads/',
+    limits: { fileSize: MAX_UPLOAD_BYTES, files: 1 },
+    fileFilter: (req, file, cb) => {
+        // Only accept the extensions the mobile engine can actually install.
+        // Without this, a caller controls the on-disk filename extension.
+        const ext = path.extname(file.originalname || '').toLowerCase();
+        if (!ALLOWED_UPLOAD_EXT.includes(ext)) {
+            return cb(new Error('Only .apk and .ipa files are accepted'));
+        }
+        cb(null, true);
+    }
+});
 
 // SECURITY: demo billing grants a paid tier with no payment. It is enabled by
 // default ONLY outside production, so an unset STRIPE_SECRET_KEY cannot hand
@@ -157,27 +176,19 @@ function generateRunId() {
     return 'ci-' + crypto.randomBytes(4).toString('hex');
 }
 
-function getFallbackRuns() {
-    return [
-        { id: "sample_video.webm", suite: "Hospital OS Core Flows", duration: "8.7s", date: "Just now", status: "passed" },
-        { id: "sample_video.webm", suite: "Checkout E2E Suite", duration: "12.4s", date: "2 hours ago", status: "passed" },
-        { id: "sample_video.webm", suite: "Registration Form Edge Cases", duration: "4.1s", date: "5 hours ago", status: "failed" },
-        { id: "sample_video.webm", suite: "Hospital OS Core Flows", duration: "8.5s", date: "Yesterday", status: "passed" }
-    ];
-}
-
 // ---- Video Streaming ----
 
 app.get('/api/videos/:filename', ...secure((req, res) => {
     const filename = req.params.filename;
     const testResultsDir = path.join(__dirname, 'test-results');
-    
+
+    // Match on the basename only. Previously this also matched with
+    // v.includes(filename), which let a partial name resolve to any file, and
+    // then silently fell back to allVideos[0] — so a request for a video that
+    // did not exist returned a different video. A testing product must not
+    // return artefacts for runs that never happened.
     const allVideos = findVideoFiles(testResultsDir);
-    let videoPath = allVideos.find(v => path.basename(v) === filename || v.includes(filename));
-    
-    if (!videoPath && allVideos.length > 0) {
-        videoPath = allVideos[0];
-    }
+    const videoPath = allVideos.find(v => path.basename(v) === filename);
 
     if (!videoPath || !fs.existsSync(videoPath)) {
         return res.status(404).send('Video file not found');
@@ -237,21 +248,27 @@ app.get('/api/runs', ...secure((req, res) => {
                 const videoName = videoAttachment ? path.basename(videoAttachment.path) : null;
                 
                 return {
-                    id: videoName || `run-00${index + 1}.webm`,
-                    suite: spec.title || 'Unknown Suite',
+                    // No invented name if there is no recorded artefact.
+                    id: videoName || `${spec.title || 'run'}-${index + 1}`,
+                    suite: spec.title || 'Unnamed suite',
                     duration: result ? `${(result.duration / 1000).toFixed(1)}s` : '0s',
                     date: result && result.startTime ? new Date(result.startTime).toLocaleString() : new Date().toLocaleString(),
                     status: (result && (result.status === 'passed' || result.status === 'expected')) ? 'passed' : 'failed'
                 };
             });
-            
-            return res.json(runs.length > 0 ? runs : getFallbackRuns());
+
+            // Never fabricate runs. An empty list means "nothing has been run
+            // yet", which is true. Previously this returned invented
+            // "Hospital OS Core Flows" results whenever report.json was absent
+            // or unreadable — a testing product must never display a pass that
+            // did not happen.
+            return res.json(runs);
         } catch (error) {
             console.error('[api/runs] Error parsing report.json:', error.message);
-            return res.json(getFallbackRuns());
+            return res.json([]);
         }
     } else {
-        return res.json(getFallbackRuns());
+        return res.json([]);
     }
 }));
 

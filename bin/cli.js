@@ -80,7 +80,23 @@ if (command === 'ui') {
         log('✅ All tests passed.');
     } catch (e) {
         const stdout = (e.stdout || '').toString();
-        const hasFailures = stdout.includes('failed') || stdout.match(/✗|❌|×/);
+        const stderr = (e.stderr || '').toString();
+        const combined = stdout + stderr;
+
+        // A fresh clone has no browsers until postinstall runs. The raw
+        // Playwright error is a wall of text, so explain the actual fix.
+        if (/Executable doesn't exist|please run the following command to download new browsers/i.test(combined)) {
+            log('');
+            log('❌ Playwright browsers are not installed.');
+            log('');
+            log('   Fix:  npm run setup:browsers');
+            log('');
+            log('   Or re-run "npm install" — it downloads them automatically.');
+            log('');
+            process.exit(1);
+        }
+
+        const hasFailures = combined.includes('failed') || stdout.match(/✗|❌|×/);
         if (hasFailures) {
             log('⚠️  Some tests failed. Video artifacts saved in test-results/.');
             log('   View HTML report: npx playwright show-report');
