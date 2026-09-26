@@ -62,11 +62,16 @@ console, and written to `data/ADMIN_KEY.txt`:
 ================================================================
   FIRST RUN — no API keys existed, so an admin key was created
 ================================================================
-  qa_live_REDACTED
+  qa_live_<64 hex characters>
 ```
 
 Open **http://localhost:3000/app** and paste that key. It is held in
 `sessionStorage` and cleared when the tab closes.
+
+> **Never commit a real key.** `data/` and `*.db` are gitignored for this reason.
+> If a key is ever pushed to a public remote, revoke it with
+> `DELETE /api/keys/<key>` and create a replacement — deleting the file from
+> history is not enough, because clones will already have it.
 
 `data/` is gitignored — your database and key never enter version control.
 
