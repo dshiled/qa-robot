@@ -44,12 +44,32 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       # playwright.config.ts starts the server itself via webServer, so no
-      # manual startup step is needed.
+      # manual startup step is needed for the e2e suite.
       - name: End-to-end suite
         run: npx playwright test --project=chromium
 
+      # The dashboard key-gate suite talks to a live server, so start one in
+      # the background first and wait for it to answer before running.
+      - name: Start server for the key-gate suite
+        run: |
+          node server.js > server.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3000/api/health > /dev/null; then
+              echo "server ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "server did not become ready"
+          cat server.log
+          exit 1
+
       - name: Dashboard key-gate suite
         run: npm run test:ui
+
+      - name: Server log (if the run above failed)
+        if: failure()
+        run: cat server.log || true
 
       - name: Upload playwright report
         if: ${{ !cancelled() }}
