@@ -30,6 +30,7 @@ data/
 *.db-wal
 *.db-shm
 ADMIN_KEY.txt
+newkey.txt
 
 # Generated runner scripts
 mobile-run-*.js
