@@ -214,10 +214,11 @@ bin/cli.js         Command line interface
 State is written to SQLite and rehydrated on boot. Jobs interrupted by a crash are
 marked failed with an explicit reason rather than hanging.
 
-## License
+## Status
 
-ISC — see [LICENSE](LICENSE).
+Proprietary. All rights reserved.
 
-The self-hosted tier is free to use, modify and redistribute. If you want to
-offer a paid hosted service on top of this code, you may need a different
-license; the current one does not restrict that.
+No license has been granted. This code is not open source, and no permission
+to use, copy, modify, or distribute it is given. If you have a use case you
+would like to discuss, get in touch.
+
